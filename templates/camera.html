@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Take Attendance - Face Recognition</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #4f46e5;
+            --secondary-color: #1e293b;
+            --accent-color: #f43f5e;
+            --background-color: #f8fafc;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        body {
+            background-color: var(--background-color);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background-color: var(--primary-color);
+            padding: 1rem 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .navbar-brand {
+            color: white !important;
+            font-weight: 600;
+            font-size: 1.5rem;
+        }
+
+        .main-container {
+            padding: 2rem 0;
+        }
+
+        .camera-container {
+            position: relative;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        #video {
+            width: 100%;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        #canvas {
+            display: none;
+        }
+
+        .status-message {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            text-align: center;
+        }
+
+        .progress-container {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .progress {
+            height: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .user-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .confidence-score {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .high-confidence {
+            color: #28a745;
+        }
+
+        .medium-confidence {
+            color: #ffc107;
+        }
+
+        .low-confidence {
+            color: #dc3545;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            border: none;
+            padding: 0.8rem 2rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background-color: #4338ca;
+            transform: translateY(-2px);
+        }
+
+        .face-box {
+            position: absolute;
+            border: 2px solid #4CAF50;
+            border-radius: 0.5rem;
+        }
+
+        .face-label {
+            position: absolute;
+            background-color: rgba(76, 175, 80, 0.8);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="material-icons me-2">face</i>
+                Face Recognition Attendance
+            </a>
+        </div>
+    </nav>
+
+    <div class="container main-container">
+        <div class="camera-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+            <div id="status" class="status-message"></div>
+            <div id="progress" class="progress-container" style="display: none;">
+                <div class="user-info">
+                    <span id="userName"></span>
+                    <span id="userId"></span>
+                </div>
+                <div class="progress">
+                    <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+                <div id="confidenceScore" class="confidence-score"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const status = document.getElementById('status');
+        const progress = document.getElementById('progress');
+        const progressBar = document.getElementById('progressBar');
+        const userName = document.getElementById('userName');
+        const userId = document.getElementById('userId');
+        const confidenceScore = document.getElementById('confidenceScore');
+        let isProcessing = false;
+
+        // Request camera access
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: 'user'
+                    } 
+                });
+                video.srcObject = stream;
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        resolve(video);
+                    };
+                });
+            } catch (err) {
+                status.innerHTML = `<div class="alert alert-danger">Error accessing camera: ${err.message}</div>`;
+                throw err;
+            }
+        }
+
+        function updateProgress(name, id, count, total, confidence) {
+            progress.style.display = 'block';
+            userName.textContent = `Name: ${name}`;
+            userId.textContent = `ID: ${id}`;
+            
+            const percentage = (count / total) * 100;
+            progressBar.style.width = `${percentage}%`;
+            progressBar.textContent = `${count}/${total} Confirmations`;
+            
+            // Update confidence score with color coding
+            confidenceScore.textContent = `Confidence: ${(confidence * 100).toFixed(1)}%`;
+            confidenceScore.className = 'confidence-score ' + 
+                (confidence >= 0.95 ? 'high-confidence' : 
+                 confidence >= 0.85 ? 'medium-confidence' : 
+                 'low-confidence');
+        }
+
+        // Process frame
+        async function processFrame() {
+            if (isProcessing) return;
+            isProcessing = true;
+
+            try {
+                // Draw video frame to canvas
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0);
+
+                // Convert canvas to base64
+                const imageData = canvas.toDataURL('image/jpeg');
+
+                // Send to server
+                const response = await fetch('/process_frame', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image: imageData })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    if (result.message.includes('Confirmation')) {
+                        // Extract confirmation count from message
+                        const match = result.message.match(/Confirmation (\d+)\/3/);
+                        if (match) {
+                            const count = parseInt(match[1]);
+                            updateProgress(result.name, result.id, count, 3, result.confidence);
+                        }
+                        status.innerHTML = `
+                            <div class="alert alert-info">
+                                <i class="material-icons me-2">info</i>
+                                ${result.message}
+                            </div>`;
+                    } else {
+                        status.innerHTML = `
+                            <div class="alert alert-success">
+                                <i class="material-icons me-2">check_circle</i>
+                                ${result.message}
+                            </div>`;
+                        // Hide progress after successful attendance
+                        progress.style.display = 'none';
+                        // Redirect to home after successful attendance
+                        setTimeout(() => window.location.href = '/', 2000);
+                    }
+                } else {
+                    status.innerHTML = `
+                        <div class="alert alert-warning">
+                            <i class="material-icons me-2">warning</i>
+                            ${result.error}
+                        </div>`;
+                    // Hide progress on error
+                    progress.style.display = 'none';
+                }
+            } catch (err) {
+                status.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="material-icons me-2">error</i>
+                        Error processing frame: ${err.message}
+                    </div>`;
+                // Hide progress on error
+                progress.style.display = 'none';
+            } finally {
+                isProcessing = false;
+            }
+        }
+
+        // Start camera and processing
+        async function start() {
+            try {
+                await setupCamera();
+                // Process frames every 2 seconds
+                setInterval(processFrame, 2000);
+            } catch (err) {
+                console.error('Error starting camera:', err);
+            }
+        }
+
+        // Start when page loads
+        start();
+    </script>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 
